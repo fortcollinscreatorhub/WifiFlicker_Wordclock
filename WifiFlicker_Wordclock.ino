@@ -17,11 +17,12 @@
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>  // Include Wire if you're using I2C
 #include <RTClib.h>
+#include <EEPROM.h>
 
 ////////////////////////////////////////////////////////////
 //
 #define AP_NAME "WordClock_Steve"
-#define AP_PASSWORD "whattimeisit?"
+#define AP_PASSWORD ""
 const String Clock_Name = "Steve's";
 
 ////////////////////////////////////////////////////////////
@@ -159,6 +160,7 @@ int lastHour = 0;
 int TimeZone = NTP_DEFAULT_TZ;
 bool NTPEnable = false;
 bool NTPValid = false;
+#define TZaddress 0
 
 WiFiUDP ntpUDP;
 NTPClient timeClient (ntpUDP, NTP_SERVER, NTP_DEFAULT_TZ, NTP_UPDATE_INTERVAL);
@@ -265,9 +267,20 @@ void handleSetTZ () {
   }
   String offset_str = server.arg("tz");
   TimeZone = offset_str.toInt();
+  Serial.printf ("New TimeZone = %d\n", TimeZone);
   timeClient.setTimeOffset(TimeZone);
+  EEPROM.write(TZaddress,   (TimeZone >> 24) & 0xff);
+  EEPROM.write(TZaddress+1, (TimeZone >> 16) & 0xff);
+  EEPROM.write(TZaddress+2, (TimeZone >> 8)  & 0xff);
+  EEPROM.write(TZaddress+3, TimeZone         & 0xff);
+ 
+  if (!EEPROM.commit()) {
+    Serial.printf("Error from EEPROM.commit\n");
+  }
+  
   if (NTPEnable && (NTPValid = timeClient.forceUpdate()))
     setRTCfromNTP ();
+  
   server.sendHeader("Location","/");
   server.send(303);
 }
@@ -328,6 +341,17 @@ struct Text text_pm = {10, 11, 2};
 bool wifi_enabled = false;
 
 void setup() {
+
+  Serial.begin(115200);
+
+  EEPROM.begin(512);
+  TimeZone = (int) (EEPROM.read(TZaddress) << 24 |
+    EEPROM.read(TZaddress+1) << 16 |
+    EEPROM.read(TZaddress+2) << 8  |
+    EEPROM.read(TZaddress+3));
+  //TimeZone = NTP_DEFAULT_TZ;
+  Serial.printf("TimeZonefrom EEPROM = %d\n", TimeZone);
+  
   // Init NeoPixel array
   //
   matrix.begin();
@@ -407,8 +431,10 @@ void setup() {
   if (wifi_enabled) {
     timeClient.begin();
     NTPEnable = true;
+    timeClient.setTimeOffset(TimeZone);
     NTPValid = timeClient.forceUpdate();
   }
+  
 
   matrix.fillScreen(0);
   matrix.show();
